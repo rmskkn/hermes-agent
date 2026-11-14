@@ -702,6 +702,14 @@ export default class App extends PureComponent<Props, State> {
       this.handleSetRawMode(false)
     }
 
+    // Alt-screen has no scrollback — exit it so the shell and its
+    // scrollback are usable while stopped. ink.tsx's SIGCONT handler
+    // re-enters on resume. Must run before SHOW_CURSOR below: exiting
+    // alt-screen (DECRST 1049) restores the cursor state some terminals
+    // saved on entry, which would clobber a SHOW_CURSOR written first and
+    // leave the cursor hidden at the shell prompt.
+    this.props.onSuspend?.()
+
     // Show cursor, disable focus reporting, and disable mouse tracking
     // before suspending. DISABLE_MOUSE_TRACKING is a no-op if tracking
     // wasn't enabled, so it's safe to emit unconditionally — without
@@ -710,11 +718,6 @@ export default class App extends PureComponent<Props, State> {
     if (this.props.stdout.isTTY) {
       this.props.stdout.write(SHOW_CURSOR + DFE + DISABLE_MOUSE_TRACKING)
     }
-
-    // Alt-screen has no scrollback — exit it so the shell and its
-    // scrollback are usable while stopped. ink.tsx's SIGCONT handler
-    // re-enters on resume.
-    this.props.onSuspend?.()
 
     this.inputEmitter.emit('suspend')
 
@@ -736,7 +739,14 @@ export default class App extends PureComponent<Props, State> {
     }
 
     process.on('SIGCONT', resumeHandler)
-    process.kill(process.pid, 'SIGSTOP')
+    // Stop the whole foreground process group (pid 0), not just this
+    // process. `hermes --tui` runs Node as a child of the Python launcher
+    // (subprocess.call, no new session/group), so SIGSTOP to only our own
+    // pid leaves Python running, blocked in waitpid with no WUNTRACED —
+    // it never sees the stop, the shell never reclaims the terminal, and a
+    // follow-up Ctrl+C's SIGINT then hits the whole (still-foreground)
+    // group, killing Python and the session instead of just resuming it.
+    process.kill(0, 'SIGSTOP')
   }
 }
 
