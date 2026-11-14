@@ -134,6 +134,13 @@ type Props = {
   // fullscreen) re-enters alt-screen + mouse tracking. Idempotent on the
   // terminal side. Optional so testing.tsx doesn't need to stub it.
   readonly onStdinResume?: () => void
+  // Called from handleSuspend, synchronously before SIGSTOP. Alt-screen has
+  // no scrollback (terminal-level, not tmux-specific) — exits it so the shell
+  // and its scrollback are usable while stopped. The SIGCONT handler in
+  // ink.tsx already expects to re-enter (its comment: "mouse tracking was
+  // disabled by handleSuspend" assumed this pairing). Optional so testing.tsx
+  // doesn't need to stub it.
+  readonly onSuspend?: () => void
   // Called for DECSET 1004 terminal focus transitions. The renderer uses
   // focus-in as a strong signal that the emulator may have coalesced hidden
   // tab writes or lost physical cursor state, so it can force one clean
@@ -703,6 +710,11 @@ export default class App extends PureComponent<Props, State> {
     if (this.props.stdout.isTTY) {
       this.props.stdout.write(SHOW_CURSOR + DFE + DISABLE_MOUSE_TRACKING)
     }
+
+    // Alt-screen has no scrollback — exit it so the shell and its
+    // scrollback are usable while stopped. ink.tsx's SIGCONT handler
+    // re-enters on resume.
+    this.props.onSuspend?.()
 
     this.inputEmitter.emit('suspend')
 

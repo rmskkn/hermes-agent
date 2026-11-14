@@ -1549,6 +1549,22 @@ export default class Ink {
   }
 
   /**
+   * Exit alt-screen for a job-control suspend (Ctrl+Z), called from App's
+   * handleSuspend synchronously before SIGSTOP. Alt-screen has no
+   * scrollback, so without this the terminal stays on a frozen, unscrollable
+   * buffer for as long as the process is stopped. Does NOT clear
+   * altScreenActive — handleResume's SIGCONT handler reads that flag to
+   * know to call reenterAltScreen() on the way back.
+   */
+  exitAltScreenForSuspend = (): void => {
+    if (!this.altScreenActive || !this.options.stdout.isTTY) {
+      return
+    }
+
+    this.options.stdout.write(EXIT_ALT_SCREEN)
+  }
+
+  /**
    * Re-enter alt-screen, clear, home, re-enable mouse tracking, and reset
    * frame buffers so the next render repaints from scratch. Self-heal for
    * SIGCONT, resize, and stdin-gap/event-loop-stall (sleep/wake) — any of
@@ -2495,6 +2511,7 @@ export default class Ink {
         onSelectionChange={this.notifySelectionChange}
         onSelectionDrag={this.handleSelectionDrag}
         onStdinResume={this.reassertTerminalModes}
+        onSuspend={this.exitAltScreenForSuspend}
         onTerminalFocusChange={this.handleTerminalFocusChange}
         selection={this.selection}
         stderr={this.options.stderr}
