@@ -65,9 +65,53 @@ def _tool_args_text(args: dict) -> str:
 def _tool_result_text(result: object) -> str:
     def render():
         from session_rules.turns import _multimodal_text_summary
-        return _multimodal_text_summary(result)
+        return _unescape_json_string_newlines(_multimodal_text_summary(result))
 
     return _verbose_text(render, lambda: str(result))
+
+
+def _unescape_json_string_newlines(text: str) -> str:
+    """Pretty-print a JSON object/array's structure by hand. A single-line string leaf stays
+    JSON-quoted as usual; a MULTI-LINE leaf prints unescaped and indented instead, so a tool
+    result's embedded ``\\n`` (e.g. terminal's ``output`` field) shows as real line breaks rather
+    than literal backslash-n. Non-JSON text and JSON scalars pass through untouched.
+    """
+    stripped = text.lstrip()
+    if stripped[:1] not in "{[":
+        return text
+    try:
+        parsed = json.loads(text)
+    except Exception:
+        return text
+    if not isinstance(parsed, (dict, list)):
+        return text
+
+    def _render(value, indent: int) -> str:
+        pad = "  " * indent
+        inner_pad = "  " * (indent + 1)
+        if isinstance(value, str):
+            if "\n" not in value:
+                return json.dumps(value, ensure_ascii=False)
+            # Multi-line leaf: indent each continuation line so it reads as part of the
+            # surrounding structure instead of a wall of text at column 0.
+            body_lines = value.split("\n")
+            return body_lines[0] + "".join(f"\n{inner_pad}{line}" for line in body_lines[1:])
+        if isinstance(value, dict):
+            if not value:
+                return "{}"
+            lines = [f'{inner_pad}"{k}": {_render(v, indent + 1)}' for k, v in value.items()]
+            return "{\n" + ",\n".join(lines) + f"\n{pad}}}"
+        if isinstance(value, list):
+            if not value:
+                return "[]"
+            lines = [f"{inner_pad}{_render(v, indent + 1)}" for v in value]
+            return "[\n" + ",\n".join(lines) + f"\n{pad}]"
+        return json.dumps(value, default=str)
+
+    try:
+        return _render(parsed, 0)
+    except Exception:
+        return text
 
 
 def _fmt_tool_duration(seconds: float | None) -> str:
