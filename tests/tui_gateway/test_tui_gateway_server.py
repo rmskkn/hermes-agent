@@ -1616,6 +1616,35 @@ def test_tui_verbose_tool_details_fail_closed_when_redaction_fails(monkeypatch):
     assert server._tool_result_text("token=secret") == ""
 
 
+def test_unescape_json_string_newlines_renders_multiline_leaf_unescaped():
+    raw = json.dumps({"output": "line1\nline2", "exit_code": 0, "error": None})
+
+    rendered = server._unescape_json_string_newlines(raw)
+
+    assert "\\n" not in rendered
+    assert "line1\n" in rendered
+    assert '"exit_code": 0' in rendered
+    assert '"error": null' in rendered
+
+
+def test_unescape_json_string_newlines_keeps_single_line_leaf_quoted():
+    raw = json.dumps({"output": "one line", "exit_code": 0})
+
+    rendered = server._unescape_json_string_newlines(raw)
+
+    assert '"output": "one line"' in rendered
+
+
+def test_unescape_json_string_newlines_passes_through_non_json_text():
+    assert server._unescape_json_string_newlines("plain text, not json") == "plain text, not json"
+
+
+def test_unescape_json_string_newlines_falls_back_on_malformed_json():
+    broken = '{"output": "line1\\nline2"'  # missing closing brace
+
+    assert server._unescape_json_string_newlines(broken) == broken
+
+
 def test_tui_verbose_tool_details_are_capped_before_emit(monkeypatch):
     monkeypatch.setattr(server, "_TUI_VERBOSE_TEXT_MAX_CHARS", 12)
     monkeypatch.setattr(server, "_TUI_VERBOSE_TEXT_MAX_LINES", 2)
